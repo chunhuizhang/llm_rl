@@ -1,4 +1,7 @@
 # train_grpo.py
+#
+# See https://github.com/willccbb/verifiers for ongoing developments
+#
 import re
 import torch
 from datasets import load_dataset, Dataset
@@ -36,7 +39,7 @@ def extract_xml_answer(text: str) -> str:
 def extract_hash_answer(text: str) -> str | None:
     if "####" not in text:
         return None
-    return text.split("####")[1].strip()
+    return text.split("####")[1].strip().replace(",", "").replace("$", "")
 
 # uncomment middle messages for 1-shot prompting
 def get_gsm8k_questions(split = "train") -> Dataset:
@@ -104,13 +107,17 @@ def xmlcount_reward_func(completions, **kwargs) -> list[float]:
 
 #model_name = "meta-llama/Llama-3.2-1B-Instruct"
 model_name = "Qwen/Qwen2.5-1.5B-Instruct"
+model_name = "Qwen/Qwen2.5-0.5B-Instruct"
 
 if "Llama" in model_name:
     output_dir = "outputs/Llama-1B-GRPO"
     run_name = "Llama-1B-GRPO-gsm8k"
-else:
+elif '1.5B' in model_name:
     output_dir="outputs/Qwen-1.5B-GRPO"
     run_name="Qwen-1.5B-GRPO-gsm8k"
+else:
+    output_dir="outputs/Qwen-0.5B-GRPO"
+    run_name="Qwen-0.5B-GRPO-gsm8k"
     
 training_args = GRPOConfig(
     output_dir=output_dir,
