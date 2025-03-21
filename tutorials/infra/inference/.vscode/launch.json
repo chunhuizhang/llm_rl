@@ -6,12 +6,13 @@
     "configurations": [
         // python vllm_tp_dp.py --mode dp
         {
-            "name": "vllm_tp_dp",
+            "name": "sglang_tp_dp",
             "type": "debugpy",
             "request": "launch",
-            "program": "vllm_tp_dp.py",
+            "program": "sglang_tp_dp.py",
             "console": "integratedTerminal", 
-            "args": ["--mode", "dp"]
+            "justMyCode": false,
+            "args": ["--mode", "tp"]
         }
     ]
 }

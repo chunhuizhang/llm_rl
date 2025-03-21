@@ -9,6 +9,8 @@ from transformers import AutoTokenizer
 from multiprocessing import Process
 import re
 from multiprocessing import Queue
+import time
+from gsm8k import extract_solution, compute_score
 
 
 def generate(llm, prompts, use_tqdm=False, args=None):    
@@ -19,38 +21,13 @@ def generate(llm, prompts, use_tqdm=False, args=None):
     responses = [[output.text for output in output_item.outputs] for output_item in outputs]
     return responses
 
-def extract_solution(solution_str, method='strict'):
-    assert method in ['strict', 'flexible']
-
-    if method == 'strict':
-        # this also tests the formatting of the model
-        solution = re.search("#### (\\-?[0-9\\.\\,]+)", solution_str)
-        if solution is None:
-            final_answer = None
-        else:
-            final_answer = solution.group(0)
-            final_answer = final_answer.split('#### ')[1].replace(',', '').replace('$', '')
-    elif method == 'flexible':
-        answer = re.findall("(\\-?[0-9\\.\\,]+)", solution_str)
-        final_answer = None
-        if len(answer) == 0:
-            # no reward is there is no answer
-            pass
-        else:
-            invalid_str = ['', '.']
-            # find the last number that is not '.'
-            for final_answer in reversed(answer):
-                if final_answer not in invalid_str:
-                    break
-    return final_answer
-
 
 def tp_generate(prompts, args):
     llm = LLM(
         model=args.model_name,
         trust_remote_code=True,
         tensor_parallel_size=args.num_gpus,
-        gpu_memory_utilization=0.90,
+        max_model_len=args.max_model_len,
     )
     responses = generate(llm, prompts, use_tqdm=True, args=args)
     return responses
@@ -81,8 +58,8 @@ def sub_dp(prompts, DP_size, dp_rank, TP_size, args, results_queue):
 
     llm = LLM(model=args.model_name, 
               trust_remote_code=True, 
-              tensor_parallel_size=TP_size, 
-              gpu_memory_utilization=0.8)
+              max_model_len=args.max_model_len,
+              tensor_parallel_size=TP_size)
     responses = generate(llm, prompts, use_tqdm=False, args=args)
     print(f"DP rank {dp_rank} finished processing {len(responses)} prompts")
     results_queue.put((dp_rank, start, end, responses))
@@ -90,26 +67,33 @@ def sub_dp(prompts, DP_size, dp_rank, TP_size, args, results_queue):
     return responses
 
 
-def compute_score(solution_str, ground_truth, method='strict', format_score=0., score=1.):
-    """The scoring function for GSM8k.
+def dp_generate(prompts, args):
+    DP_size = args.num_gpus
+    TP_size = 1
 
-    Reference: Trung, Luong, et al. "Reft: Reasoning with reinforced fine-tuning." Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers). 2024.
+    procs = []
+    results_queue = Queue()
+    for i in range(DP_size):
+        proc = Process(target=sub_dp, args=(prompts, DP_size, i, TP_size, args, results_queue))
+        proc.start()
+        procs.append(proc)
 
-    Args:
-        solution_str: the solution text
-        ground_truth: the ground truth
-        method: the method to extract the solution, choices are 'strict' and 'flexible'
-        format_score: the score for the format
-        score: the score for the correct answer
-    """
-    answer = extract_solution(solution_str=solution_str, method=method)
-    if answer is None:
-        return 0
-    else:
-        if answer == ground_truth:
-            return score
-        else:
-            return format_score
+    all_results = []
+    for _ in range(DP_size):
+        dp_rank, start, end, responses = results_queue.get()
+        all_results.append((dp_rank, start, end, responses))
+
+    for proc in procs:
+        proc.join()
+
+    all_results.sort(key=lambda x: x[0])  # 按 dp_rank 排序
+
+    all_responses = []
+    for _, start, end, responses in all_results:
+        if responses and responses[0][0] != "Placeholder":
+            all_responses.extend(responses)
+    return all_responses
+
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
@@ -120,6 +104,7 @@ if __name__ == "__main__":
     args.add_argument("--data_path", type=str, default="./data/gsm8k_test.parquet")
     args.add_argument("--temperature", type=float, default=0.0)
     args.add_argument("--max_tokens", type=int, default=8192)
+    args.add_argument("--max_model_len", type=int, default=4096)
     args.add_argument("--n", type=int, default=1)
     args.add_argument("--dp_master_ip", type=str, default="127.0.0.1")
     args.add_argument("--dp_master_port", type=int, default=get_open_port())
@@ -138,35 +123,13 @@ if __name__ == "__main__":
     if args.num_prompts != -1:
         prompts = prompts[:args.num_prompts]
 
+    t0 = time.time()
     if args.mode == "tp":
         all_responses = tp_generate(prompts, args)
-    
     elif args.mode == "dp":
+        all_responses = dp_generate(prompts, args)
+    t1 = time.time()
 
-        DP_size = args.num_gpus
-        TP_size = 1
-
-        procs = []
-        results_queue = Queue()
-        for i in range(DP_size):
-            proc = Process(target=sub_dp, args=(prompts, DP_size, i, TP_size, args, results_queue))
-            proc.start()
-            procs.append(proc)
-
-        all_results = []
-        for _ in range(DP_size):
-            dp_rank, start, end, responses = results_queue.get()
-            all_results.append((dp_rank, start, end, responses))
- 
-        for proc in procs:
-            proc.join()
-
-        all_results.sort(key=lambda x: x[0])  # 按 dp_rank 排序
-
-        all_responses = []
-        for _, start, end, responses in all_results:
-            if responses and responses[0][0] != "Placeholder":
-                all_responses.extend(responses)
 
     total_score = 0
     for example, response in zip(test_parquet, all_responses):
@@ -182,3 +145,4 @@ if __name__ == "__main__":
         total_score += score
 
     print(f"accuray: {total_score}/{len(prompts)} = {total_score / len(prompts)}")
+    print(f"Time taken of {args.mode} mode: {t1 - t0} seconds")
