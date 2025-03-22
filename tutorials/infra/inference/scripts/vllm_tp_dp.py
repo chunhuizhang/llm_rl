@@ -60,7 +60,7 @@ def sub_dp(prompts, DP_size, dp_rank, TP_size, args, results_queue):
               trust_remote_code=True, 
               max_model_len=args.max_model_len,
               tensor_parallel_size=TP_size)
-    responses = generate(llm, prompts, use_tqdm=False, args=args)
+    responses = generate(llm, prompts, use_tqdm=True, args=args)
     print(f"DP rank {dp_rank} finished processing {len(responses)} prompts")
     results_queue.put((dp_rank, start, end, responses))
     print(f'results queue size: {results_queue.qsize()}')
