@@ -13,6 +13,14 @@
             "console": "integratedTerminal", 
             "justMyCode": false,
             "args": ["--mode", "tp"]
+        },
+        // python ray_vllm_dp.py --mode dp
+        {
+            "name": "ray_vllm_dp",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/scripts",
+            "program": "ray_vllm_dp.py",
         }
     ]
 }
