@@ -13,8 +13,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from tavily import TavilyClient
-
-assert load_dotenv()
+import argparse
 
 
 @dataclass
@@ -48,12 +47,8 @@ class AgentTools:
         
         # Initialize Tavily client
         self.tavily_api_key = os.getenv("TAVILY_API_KEY")
-        if self.tavily_api_key:
-            self.tavily_client = TavilyClient(api_key=self.tavily_api_key)
-        else:
-            self.tavily_client = None
-            print("⚠️  No TAVILY_API_KEY found. Web search will use simulation mode.")
-    
+        self.tavily_client = TavilyClient(api_key=self.tavily_api_key)
+        
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
         """Get OpenAI-compatible tool definitions"""
         return [
@@ -240,9 +235,15 @@ class AgentTools:
 class OpenAIAgent:
     """OpenAI-style agent with tool calling and agentic loops"""
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini"):
-        self.client = OpenAI(api_key=api_key) if api_key else None
-        self.model = model
+    def __init__(self, model_id: str = "gpt-4o-mini"):
+        self.model_id = model_id
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        if 'k2' in self.model_id:
+            self.base_url = "https://api.moonshot.cn/v1"
+            self.api_key = os.getenv("MOONSHOT_API_KEY")
+        else:
+            self.base_url = "https://api.openai.com/v1"
+        self.client = OpenAI(base_url=self.base_url, api_key=self.api_key)
         self.tools = AgentTools()
         self.conversation_history = []
         self.max_iterations = 10
@@ -308,7 +309,7 @@ class OpenAIAgent:
     def run(self, user_input: str) -> Dict:
         """Run the agent with agentic loops"""
         print(f"🚀 Agent initialized successfully!")
-        print(f"📝 Using model: {self.model}")
+        print(f"📝 Using model: {self.model_id}")
         print("-" * 60)
         
         # Initialize conversation with system message
@@ -332,10 +333,10 @@ class OpenAIAgent:
             # Get response from OpenAI (or simulation)
 
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self.model_id,
                 messages=self.conversation_history,
                 tools=self.tools.get_tool_definitions(),
-                tool_choice="auto"
+                # tool_choice="auto",
             )
             response = response.model_dump()
 
@@ -389,16 +390,13 @@ class OpenAIAgent:
         }
 
 
-def main():
+def main(model_id: str):
     """Main function to run the agent"""
     print("🤖 OpenAI Agent with Tool Calling and Agentic Loops")
     print("=" * 60)
     
-    # Initialize agent (API key can be set via environment variable or passed directly)
-    api_key = os.getenv("OPENAI_API_KEY")
-    tavily_key = os.getenv("TAVILY_API_KEY")
     
-    agent = OpenAIAgent(api_key=api_key, model="gpt-4.1-nano")
+    agent = OpenAIAgent(model_id=model_id)
     
     # Example task from the image
     user_query = "search 五道口纳什, then give me the result of 4454+322-32/3 and write a txt file with what you find about him"
@@ -414,4 +412,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", type=str, default="gpt-4.1-nano")
+    args = parser.parse_args()
+    assert load_dotenv()
+    main(args.model)
