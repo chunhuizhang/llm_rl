@@ -344,7 +344,8 @@ class OpenAIAgent:
             
             # Add assistant message to conversation
             self.conversation_history.append(message)
-            
+            print(f'finish reason: {response["choices"][0]["finish_reason"]}')
+            print(f"💬 Agent thought: {message['content']}")
             # Check if there are tool calls to execute
             tool_calls = message.get("tool_calls", [])
             if tool_calls:
@@ -378,8 +379,8 @@ class OpenAIAgent:
                     break
             else:
                 # No tool calls, agent is done
-                if message.get("content"):
-                    print(f"💬 Agent: {message['content']}")
+                # if message.get("content"):
+                #     print(f"💬 Agent: {message['content']}")
                 break
         
         return {
