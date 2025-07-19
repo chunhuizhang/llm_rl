@@ -316,7 +316,8 @@ class OpenAIAgent:
         self.conversation_history = [
             {
                 "role": "system",
-                "content": "You are a helpful assistant that can use tools to complete tasks. You can call multiple tools in parallel when needed."
+                # "content": "You are a helpful assistant that can use tools to complete tasks. You can call multiple tools in parallel when needed."
+                "content": "You are a helpful assistant."
             },
             {
                 "role": "user",
